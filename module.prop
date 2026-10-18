@@ -1,6 +1,6 @@
 id=vibration_bridge
-name=Vibration Bridge (Alarms, Calls & ADB Testing)
-version=2.4.1
-versionCode=241
+name=Zircon Vibration Log Bridge
+version=2.5.0
+versionCode=250
 author=JxstABoy & Root Dev
-description=Refined userspace vibration bridge for Xiaomi Zircon with allowed android.shell for ADB tests, continuous alarms until dismissed, and call repetition.
+description=Experimental logcat-based vibration event capture and AWINIC haptic fallback for Xiaomi Zircon.
