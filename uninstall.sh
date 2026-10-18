@@ -1,7 +1,7 @@
 #!/system/bin/sh
 MODDIR="${0%/*}"
 
-# Restore the original HAL if this experimental branch was applied.
+# Restore the original HAL if this experiment was applied.
 if [ -r "$MODDIR/rollback-hal-default.sh" ] &&
    [ -r /data/adb/zircon-vibrator-fix-hal-backup/PATCH_APPLIED ]; then
     sh "$MODDIR/rollback-hal-default.sh" ||
