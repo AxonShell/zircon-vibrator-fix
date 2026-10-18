@@ -10,6 +10,7 @@ OVERLAYFS="/data/adb/modules/magisk_overlayfs"
 BACKUP="/data/adb/zircon-vibrator-fix-hal-backup"
 WORK="/data/adb/.zircon-vibrator-fix-work.$$"
 BACKUP_READY=0
+BACKUP_CREATED=0
 PATCH_STARTED=0
 PATCH_APPLIED=0
 
@@ -38,6 +39,8 @@ cleanup() {
         if ! restore_originals; then
             echo "[HAL-default experiment] CRITICAL: restore failed. Originals are in $BACKUP" >&2
         fi
+    elif [ "$PATCH_STARTED" != "1" ] && [ "$BACKUP_CREATED" = "1" ]; then
+        rm -rf "$BACKUP"
     fi
     rm -rf "$WORK"
     exit "$RC"
@@ -56,7 +59,7 @@ esac
 [ -r "$HAL" ] || fail "HAL binary not readable: $HAL"
 [ -r "$MANIFEST" ] || fail "VINTF manifest not readable: $MANIFEST"
 [ -x "$OVERLAYFS/overlayfs_system" ] ||
-    fail "Install and enable Magisk OverlayFS first. Stock Magisk cannot reliably overlay a separate /odm partition."
+    fail "Install and enable Magisk OverlayFS first. Standard Magisk does not reliably overlay a separate /odm partition."
 "$OVERLAYFS/overlayfs_system" --test >/dev/null 2>&1 ||
     fail "Magisk OverlayFS reports that this kernel/setup is unsupported."
 
@@ -66,9 +69,21 @@ if service check android.hardware.vibrator.IVibrator/default >/dev/null 2>&1; th
     fail "IVibrator/default already exists; refusing to patch."
 fi
 
-INSTANCE_COUNT="$(grep -aoF '/vibratorfeature' "$HAL" 2>/dev/null | wc -l | tr -d '[:space:]')"
+# The source path in this ELF also contains the text /vibratorfeature.
+# Count only the null-terminated C string used as a registration literal.
+MATCHES="$(grep -aobF '/vibratorfeature' "$HAL" 2>/dev/null || true)"
+OFFSET=""
+INSTANCE_COUNT=0
+for ENTRY in $MATCHES; do
+    POS="${ENTRY%%:*}"
+    NEXT_BYTE="$(dd if="$HAL" bs=1 skip="$((POS + 16))" count=1 2>/dev/null | od -An -t x1 | tr -d '[:space:]')"
+    if [ "$NEXT_BYTE" = "00" ]; then
+        OFFSET="$POS"
+        INSTANCE_COUNT=$((INSTANCE_COUNT + 1))
+    fi
+done
 [ "$INSTANCE_COUNT" = "1" ] ||
-    fail "Expected exactly one /vibratorfeature literal in the HAL binary; found $INSTANCE_COUNT. No change made."
+    fail "Expected exactly one null-terminated /vibratorfeature registration literal; found $INSTANCE_COUNT. No change made."
 
 MANIFEST_COUNT="$(grep -F 'IVibrator/vibratorfeature' "$MANIFEST" | wc -l | tr -d '[:space:]')"
 [ "$MANIFEST_COUNT" = "1" ] ||
@@ -76,26 +91,22 @@ MANIFEST_COUNT="$(grep -F 'IVibrator/vibratorfeature' "$MANIFEST" | wc -l | tr -
 
 [ ! -e "$BACKUP" ] ||
     fail "Backup directory already exists at $BACKUP. Restore or inspect it before attempting another patch."
+
 mkdir -p "$WORK" || fail "Cannot create temporary work directory."
 trap cleanup EXIT HUP INT TERM
-
 cp -p "$HAL" "$WORK/hal" || fail "Could not stage HAL binary."
 cp -p "$MANIFEST" "$WORK/manifest" || fail "Could not stage VINTF manifest."
 
-OFFSET="$(grep -aobF '/vibratorfeature' "$HAL" | head -n 1 | cut -d: -f1)"
-[ -n "$OFFSET" ] || fail "Could not locate the instance literal offset."
-
-# The source string is 16 bytes. Replace it with /default and eight NUL bytes,
-# preserving the ELF file size. This is intentionally guarded and experimental.
+# Source registration string is 16 bytes. Replace with /default and eight NUL
+# bytes so the ELF size is unchanged. This is intentionally experimental.
 printf '/default\000\000\000\000\000\000\000\000' |
     dd of="$WORK/hal" bs=1 seek="$OFFSET" conv=notrunc 2>/dev/null ||
     fail "Could not patch the staged HAL binary."
 
 CHECKED="$(dd if="$WORK/hal" bs=1 skip="$OFFSET" count=8 2>/dev/null)"
 [ "$CHECKED" = "/default" ] || fail "Binary patch verification failed."
-if grep -aqF '/vibratorfeature' "$WORK/hal"; then
-    fail "Old instance literal remains in the staged binary."
-fi
+ZERO_BYTES="$(dd if="$WORK/hal" bs=1 skip="$((OFFSET + 8))" count=8 2>/dev/null | od -An -t x1 | tr -d '[:space:]')"
+[ "$ZERO_BYTES" = "0000000000000000" ] || fail "Instance string terminator verification failed."
 
 sed 's#IVibrator/vibratorfeature#IVibrator/default#g' "$WORK/manifest" > "$WORK/manifest.new"
 grep -Fq 'IVibrator/default' "$WORK/manifest.new" ||
@@ -105,19 +116,15 @@ if grep -Fq 'IVibrator/vibratorfeature' "$WORK/manifest.new"; then
 fi
 mv "$WORK/manifest.new" "$WORK/manifest"
 
-# Keep restorable originals outside the module directory, because the OverlayFS
-# changes live in its own upper layer and disabling this module alone won't undo them.
 mkdir -m 0700 "$BACKUP" || fail "Could not create backup directory."
+BACKUP_CREATED=1
 cp -p "$HAL" "$BACKUP/hal.original" || fail "Could not back up original HAL."
-cp -p "$MANIFEST" "$BACKUP/manifest.original" || {
-    rm -rf "$BACKUP"
-    fail "Could not back up original manifest."
-}
+cp -p "$MANIFEST" "$BACKUP/manifest.original" || fail "Could not back up original manifest."
 chmod 0600 "$BACKUP/hal.original" "$BACKUP/manifest.original"
 BACKUP_READY=1
 printf 'device=%s\n' "$DEVICE" > "$BACKUP/device.txt"
 
-# Magisk OverlayFS documents this command for making the mounted overlays writable.
+# This writes to OverlayFS' upper layer, not to the underlying flash partition.
 su -mm -c magic_remount_rw ||
     fail "Could not make OverlayFS writable; no target file has been changed."
 
@@ -131,8 +138,8 @@ restorecon "$HAL" "$MANIFEST" 2>/dev/null || true
 CHECKED="$(dd if="$HAL" bs=1 skip="$OFFSET" count=8 2>/dev/null)"
 [ "$CHECKED" = "/default" ] || fail "On-device HAL verification failed."
 grep -Fq 'IVibrator/default' "$MANIFEST" || fail "On-device VINTF verification failed."
-if grep -aqF '/vibratorfeature' "$HAL" || grep -Fq 'IVibrator/vibratorfeature' "$MANIFEST"; then
-    fail "Old instance name remains after writing."
+if grep -Fq 'IVibrator/vibratorfeature' "$MANIFEST"; then
+    fail "Old instance name remains in the manifest after writing."
 fi
 
 date '+%Y-%m-%d %H:%M:%S' > "$BACKUP/PATCH_APPLIED"
