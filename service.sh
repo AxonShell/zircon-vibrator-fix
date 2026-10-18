@@ -20,7 +20,7 @@ OLD="$STATE_DIR/notif_old.txt"
 NEW="$STATE_DIR/notif_new.txt"
 LOCK="$STATE_DIR/vibration.lock"
 MAIN_PID="$MODDIR/main.pid"
-NOTIF_PID_FILE="$MODDIR/notification.pid"
+VIBRATION_LOG_PID_FILE="$MODDIR/vibration_log.pid"
 ALARM_LOOP_PID_FILE="$MODDIR/alarm_loop.pid"
 CALL_LOOP_PID_FILE="$MODDIR/call_loop.pid"
 
@@ -145,86 +145,6 @@ vibrate() {
     return "$RESULT"
 }
 
-# Snapshot capturing package, key, and ongoing status
-snapshot() {
-    dumpsys notification --noredact 2>/dev/null |
-        awk '
-        /pkg=/ && /key=/ {
-            line = $0
-            pkg = ""
-            key = ""
-            ongoing = 0
-
-            if (match(line, /pkg=[^ ]+/))
-                pkg = substr(line, RSTART + 4, RLENGTH - 4)
-
-            if (match(line, /key=[^ ]+/))
-                key = substr(line, RSTART + 4, RLENGTH - 4)
-
-            if (index(line, "ongoing=true") > 0 || index(line, "isOngoing=true") > 0 || index(line, "FLAG_ONGOING_EVENT") > 0)
-                ongoing = 1
-
-            if (pkg != "" && key != "")
-                print pkg "|" key "|" ongoing
-        }
-        ' |
-        sort -u
-}
-
-should_ignore_package() {
-    PKG="$1"
-    case "$PKG" in
-        # Allowed com.android.shell so ADB tests work properly!
-        com.google.android.gms*|com.miui.gallery*|com.google.android.as*|com.miui.securitycenter*|com.xiaomi.mi_connect_service*|me.piebridge.brevent*|android|com.android.providers.*|com.android.settings*)
-            return 0
-            ;;
-        com.android.deskclock|com.google.android.deskclock)
-            return 0
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-}
-
-notification_pattern() {
-    PACKAGE="$1"
-
-    case "$PACKAGE" in
-        com.snapchat.android)
-            echo snapchat
-            ;;
-        com.facebook.orca|com.whatsapp|com.instagram.android|com.telegram.messenger)
-            echo default
-            ;;
-        com.android.shell)
-            echo default
-            ;;
-        *)
-            echo default
-            ;;
-    esac
-}
-
-handle_notification() {
-    KEY="$1"
-    PACKAGE="$2"
-    ONGOING="$3"
-
-    if [ "$ONGOING" = "1" ]; then
-        return 0
-    fi
-
-    if should_ignore_package "$PACKAGE"; then
-        return 0
-    fi
-
-    PATTERN="$(notification_pattern "$PACKAGE")"
-
-    log_msg "[INFO] notification received: package=$PACKAGE"
-    vibrate "notification:$PACKAGE" "$PATTERN"
-}
-
 # Prevent duplicate bridge instances
 if [ -r "$MAIN_PID" ]; then
     OLD_PID="$(cat "$MAIN_PID" 2>/dev/null)"
@@ -238,7 +158,7 @@ fi
 echo "$$" > "$MAIN_PID"
 
 cleanup() {
-    for PIDFILE in "$NOTIF_PID_FILE" "$ALARM_LOOP_PID_FILE" "$CALL_LOOP_PID_FILE"; do
+    for PIDFILE in "$VIBRATION_LOG_PID_FILE" "$ALARM_LOOP_PID_FILE" "$CALL_LOOP_PID_FILE" "$MODDIR/alarm_monitor.pid" "$MODDIR/call_monitor.pid"; do
         if [ -r "$PIDFILE" ]; then
             CHILD_PID="$(cat "$PIDFILE" 2>/dev/null)"
             if [ -n "$CHILD_PID" ]; then
@@ -247,14 +167,14 @@ cleanup() {
         fi
     done
 
-    rm -f "$MAIN_PID" "$NOTIF_PID_FILE" "$ALARM_LOOP_PID_FILE" "$CALL_LOOP_PID_FILE"
+    rm -f "$MAIN_PID" "$VIBRATION_LOG_PID_FILE" "$ALARM_LOOP_PID_FILE" "$CALL_LOOP_PID_FILE" "$MODDIR/alarm_monitor.pid" "$MODDIR/call_monitor.pid"
     log_msg "Bridge stopped"
 }
 
 trap cleanup EXIT
 trap 'exit 0' INT TERM
 
-log_msg "Zircon AWINIC Vibration Bridge starting (v2.4.1)"
+log_msg "Zircon AWINIC Vibration Log Bridge starting (v2.5.0-logwatch)"
 
 WAIT=0
 while [ ! -d "$SYSFS_DIR" ] && [ "$WAIT" -lt 60 ]; do
@@ -279,32 +199,45 @@ done
 
 log_msg "Device detected: $SYSFS_DIR"
 
-snapshot > "$OLD"
-log_msg "Notification baseline captured"
+# Capture Android vibration/haptic diagnostics instead of polling notifications.
+VIBRATION_EVENT_LOG="$STATE_DIR/vibration_events.log"
+touch "$VIBRATION_EVENT_LOG"
+log_msg "Starting logcat vibration watcher; captured events: $VIBRATION_EVENT_LOG"
 
-# Notification watcher
 (
-    while true; do
-        sleep "$POLL_SECONDS"
-        snapshot > "$NEW"
+    # logcat remains the source of truth for diagnostic evidence. Trigger only
+    # from recognized usage/status records; generic "vibrator" lines are logged
+    # but must not cause repeated pulses.
+    logcat -b all -v threadtime 2>&1 |
+    while IFS= read -r LINE; do
+        case "$LINE" in
+            *VibratorManagerService*|*VibrationThread*|*VibratorControlService*|*vibratorfeature*|*awinic_haptic*|*haptic*)
+                printf '%s\n' "$LINE" >> "$VIBRATION_EVENT_LOG"
+                ;;
+            *)
+                continue
+                ;;
+        esac
 
-        if [ ! -s "$NEW" ]; then
-            continue
-        fi
-
-        comm -13 <(sort "$OLD") <(sort "$NEW") 2>/dev/null |
-        while IFS='|' read -r PACKAGE KEY ONGOING; do
-            [ -n "$PACKAGE" ] || continue
-            [ -n "$KEY" ] || continue
-            handle_notification "$KEY" "$PACKAGE" "${ONGOING:-0}"
-        done
-
-        cp "$NEW" "$OLD"
+        # Android framework status records commonly include mUsage and are
+        # emitted once per completed request. This is best-effort: vendor builds
+        # may suppress these logs, so absence of a match does not mean no request.
+        case "$LINE" in
+            *"Vibration for uid="*"mUsage=NOTIFICATION"*)
+                vibrate "logcat:notification" "default"
+                ;;
+            *"Vibration for uid="*"mUsage=ALARM"*)
+                vibrate "logcat:alarm" "alarm"
+                ;;
+            *"Vibration for uid="*"mUsage=RINGTONE"*)
+                vibrate "logcat:ringtone" "call"
+                ;;
+        esac
     done
 ) &
 
-echo "$!" > "$NOTIF_PID_FILE"
-log_msg "Notification watcher started: PID=$(cat "$NOTIF_PID_FILE")"
+echo "$!" > "$VIBRATION_LOG_PID_FILE"
+log_msg "Vibration log watcher started: PID=$(cat "$VIBRATION_LOG_PID_FILE")"
 
 # Dedicated Alarm Monitor (Continuous repeating vibration UNTIL DISCARDED)
 (
