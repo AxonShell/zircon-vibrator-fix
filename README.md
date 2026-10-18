@@ -4,7 +4,7 @@ Experimental Magisk module for Xiaomi/Redmi Zircon devices using the AWINIC hapt
 
 ## Experimental branch: hal-instance-default-experiment
 
-This branch is an **opt-in test** of changing Xiaomi's HAL instance from `IVibrator/vibratorfeature` to the conventional `IVibrator/default`. Android's AIDL HAL convention uses `android.hardware.vibrator.IVibrator/default` (see the [AIDL HAL documentation](https://source.android.com/docs/core/architecture/aidl/aidl-hals?authuser=20)), but the installed framework library on this phone also contains a `vibratorfeature` lookup-related string. Therefore, the naming mismatch is plausible, not proven.
+This branch started as an **opt-in test** of changing Xiaomi's HAL instance from `IVibrator/vibratorfeature` to `IVibrator/default`, but the current device evidence argues against applying that rename without more diagnostics. The installed `/system/lib64/libvibratorservice.so` contains `Connected to Vibrator HAL AIDL service : vibratorfeature`, suggesting this firmware intentionally supports that instance. The prep script now detects that exact string and **refuses to patch**. Do not install OverlayFS just to force this test; capture runtime HAL errors first. The conventional `default` name alone does not prove the current instance is wrong.
 
 ### Requirements
 
