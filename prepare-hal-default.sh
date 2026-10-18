@@ -58,6 +58,11 @@ esac
 
 [ -r "$HAL" ] || fail "HAL binary not readable: $HAL"
 [ -r "$MANIFEST" ] || fail "VINTF manifest not readable: $MANIFEST"
+FRAMEWORK="/system/lib64/libvibratorservice.so"
+[ -r "$FRAMEWORK" ] || fail "Framework vibrator library not readable: $FRAMEWORK"
+if strings "$FRAMEWORK" 2>/dev/null | grep -Fq 'Connected to Vibrator HAL AIDL service : vibratorfeature'; then
+    fail "This framework explicitly references vibratorfeature. The default-instance rename is not justified by current evidence; no files changed. Capture runtime HAL logs first."
+fi
 [ -x "$OVERLAYFS/overlayfs_system" ] ||
     fail "Install and enable Magisk OverlayFS first. Standard Magisk does not reliably overlay a separate /odm partition."
 "$OVERLAYFS/overlayfs_system" --test >/dev/null 2>&1 ||
