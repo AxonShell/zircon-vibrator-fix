@@ -1,6 +1,6 @@
 id=vibration_bridge
-name=Zircon Vibration Log Bridge
-version=2.5.0
-versionCode=250
+name=Zircon Vibration Log Bridge - HAL Instance Experiment
+version=2.6.0
+versionCode=260
 author=JxstABoy & Root Dev
-description=Experimental logcat-based vibration event capture and AWINIC haptic fallback for Xiaomi Zircon.
+description=Experimental systemless IVibrator/default instance test for Xiaomi Zircon with AWINIC log monitoring.
