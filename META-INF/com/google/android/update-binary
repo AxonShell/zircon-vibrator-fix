@@ -1,5 +1,6 @@
 #!/system/bin/sh
 OIFS=$IFS; IFS=\n
+
 [ -z "$1" ] && exit 1
 ZIPFILE="$3"
 MODDIR="/data/adb/modules/vibration_bridge"
@@ -7,5 +8,7 @@ mkdir -p "$MODDIR"
 unzip -o "$ZIPFILE" -d "$MODDIR"
 chmod 755 "$MODDIR/service.sh"
 chmod 755 "$MODDIR/uninstall.sh"
-ui_print "Zircon Vibration Log Bridge v2.5.0 installed successfully!"
+chmod 755 "$MODDIR/prepare-hal-default.sh"
+ui_print "Zircon Vibration Log Bridge v2.6.0 installed."
+ui_print "HAL instance experiment is opt-in; run prepare-hal-default.sh from root shell."
 exit 0
