@@ -11,13 +11,9 @@ NOTIF_DURATION=210
 SYSTEM_DURATION=70
 CALL_DURATION=300
 ALARM_DURATION=400
-DEBOUNCE_SECONDS=3
-POLL_SECONDS=1
 ALARM_REPEAT_INTERVAL=3
 CALL_REPEAT_INTERVAL=2
 
-OLD="$STATE_DIR/notif_old.txt"
-NEW="$STATE_DIR/notif_new.txt"
 LOCK="$STATE_DIR/vibration.lock"
 MAIN_PID="$MODDIR/main.pid"
 VIBRATION_LOG_PID_FILE="$MODDIR/vibration_log.pid"
@@ -211,7 +207,7 @@ log_msg "Starting logcat vibration watcher; captured events: $VIBRATION_EVENT_LO
     logcat -b all -v threadtime 2>&1 |
     while IFS= read -r LINE; do
         case "$LINE" in
-            *VibratorManagerService*|*VibrationThread*|*VibratorControlService*|*vibratorfeature*|*awinic_haptic*|*haptic*)
+            *Vibration*|*vibrator*|*Vibrator*|*haptic*|*Haptic*|*awinic_haptic*)
                 printf '%s\n' "$LINE" >> "$VIBRATION_EVENT_LOG"
                 ;;
             *)
@@ -222,14 +218,15 @@ log_msg "Starting logcat vibration watcher; captured events: $VIBRATION_EVENT_LO
         # Android framework status records commonly include mUsage and are
         # emitted once per completed request. This is best-effort: vendor builds
         # may suppress these logs, so absence of a match does not mean no request.
-        case "$LINE" in
-            *"Vibration for uid="*"mUsage=NOTIFICATION"*)
+        LOWER_LINE="$(printf '%s' "$LINE" | tr '[:upper:]' '[:lower:]')"
+        case "$LOWER_LINE" in
+            *vibration*"usage=notification"*|*vibrat*"musage=notification"*)
                 vibrate "logcat:notification" "default"
                 ;;
-            *"Vibration for uid="*"mUsage=ALARM"*)
+            *vibration*"usage=alarm"*|*vibrat*"musage=alarm"*)
                 vibrate "logcat:alarm" "alarm"
                 ;;
-            *"Vibration for uid="*"mUsage=RINGTONE"*)
+            *vibration*"usage=ringtone"*|*vibrat*"musage=ringtone"*)
                 vibrate "logcat:ringtone" "call"
                 ;;
         esac
