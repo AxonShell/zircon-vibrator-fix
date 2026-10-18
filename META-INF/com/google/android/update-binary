@@ -1,0 +1,11 @@
+#!/system/bin/sh
+OIFS=$IFS; IFS=\n
+[ -z "$1" ] && exit 1
+ZIPFILE="$3"
+MODDIR="/data/adb/modules/vibration_bridge"
+mkdir -p "$MODDIR"
+unzip -o "$ZIPFILE" -d "$MODDIR"
+chmod 755 "$MODDIR/service.sh"
+chmod 755 "$MODDIR/uninstall.sh"
+ui_print "Vibration Bridge v2.4.1 installed successfully!"
+exit 0
