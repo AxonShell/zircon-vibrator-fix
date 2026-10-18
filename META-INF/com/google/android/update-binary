@@ -7,5 +7,5 @@ mkdir -p "$MODDIR"
 unzip -o "$ZIPFILE" -d "$MODDIR"
 chmod 755 "$MODDIR/service.sh"
 chmod 755 "$MODDIR/uninstall.sh"
-ui_print "Vibration Bridge v2.4.1 installed successfully!"
+ui_print "Zircon Vibration Log Bridge v2.5.0 installed successfully!"
 exit 0
