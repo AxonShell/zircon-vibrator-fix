@@ -10,6 +10,6 @@ chmod 755 "$MODDIR/service.sh"
 chmod 755 "$MODDIR/uninstall.sh"
 chmod 755 "$MODDIR/prepare-hal-default.sh"
 chmod 755 "$MODDIR/rollback-hal-default.sh"
-ui_print "Zircon Vibration Log Bridge v2.6.0 installed."
+ui_print "Zircon Vibration Log Bridge v2.6.1 installed."
 ui_print "HAL instance change is opt-in and requires Magisk OverlayFS."
 exit 0
