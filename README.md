@@ -4,14 +4,14 @@ Experimental Magisk module for Xiaomi/Redmi Zircon devices using the AWINIC hapt
 
 ## Experimental branch: hal-instance-default-experiment
 
-This branch is based on `vibration-log-monitor` and adds an **opt-in, systemless experiment** that changes the Xiaomi HAL instance from `IVibrator/vibratorfeature` to the conventional `IVibrator/default`.
+This branch is an **opt-in test** of changing Xiaomi's HAL instance from `IVibrator/vibratorfeature` to the conventional `IVibrator/default`. Android's AIDL HAL convention uses `android.hardware.vibrator.IVibrator/default` (see the [AIDL HAL documentation](https://source.android.com/docs/core/architecture/aidl/aidl-hals?authuser=20)), but the installed framework library on this phone also contains a `vibratorfeature` lookup-related string. Therefore, the naming mismatch is plausible, not proven.
 
-The experiment has two parts:
+### Requirements
 
-- A copied HAL executable with its single embedded `/vibratorfeature` literal replaced by the same-length `/default\0\0\0\0\0\0\0\0` byte sequence.
-- A matching copied VINTF manifest declaring `IVibrator/default`.
-
-The original files under `/odm` are not written to. The overlay files are placed under this module's `system/odm/` tree for Magisk to mount on the next boot.
+- The intended Xiaomi/Redmi Zircon firmware.
+- Magisk root.
+- The separate **Magisk OverlayFS** module installed and working. Standard Magisk does not reliably map `system/odm` overlays onto a separately mounted `/odm` partition; this branch writes through OverlayFS instead. See [Magisk OverlayFS](https://github.com/Magisk-Modules-Alt-Repo/magisk_overlayfs).
+- A way to disable modules or access recovery before testing.
 
 ### Prepare the experiment
 
@@ -24,7 +24,7 @@ The original files under `/odm` are not written to. The overlay files are placed
    ```
 
 3. If the script reports success, reboot.
-4. Check the service and framework state:
+4. Check the HAL and framework:
 
    ```sh
    su
@@ -33,21 +33,27 @@ The original files under `/odm` are not written to. The overlay files are placed
    dumpsys vibrator_manager | grep -iE 'vibratorIds|Vibrators:|hapticChannelMaxAmplitude'
    ```
 
-The script fails closed unless it detects Zircon, the expected registered service, exactly one embedded instance literal, and exactly one matching manifest entry. If the installed firmware differs, it makes no overlay changes.
+The preparation script fails closed unless it detects Zircon, the expected running service, exactly one embedded `/vibratorfeature` literal, and exactly one matching VINTF declaration. It backs up both original files to `/data/adb/zircon-vibrator-fix-hal-backup` before changing them. The original flash partition is not written to; changes are stored in the OverlayFS upper layer.
 
 ### Rollback
 
-Disable this module in Magisk and reboot. The systemless overlay disappears and the original HAL binary and VINTF manifest remain untouched.
+**Disabling this module alone does not undo changes stored in the separate OverlayFS upper layer.** To restore the original files, run:
 
-## Important: this is not a proven fix
+```sh
+su
+sh /data/adb/modules/vibration_bridge/rollback-hal-default.sh
+reboot
+```
 
-On the tested firmware, `vibratorfeature` is registered and the framework reports `vibratorIds = []`. The framework library also contains a `vibratorfeature` lookup-related string, so an instance-name mismatch is plausible but **not proven**. This experiment only tests that hypothesis; it does not repair the kernel driver or change its sysfs interface.
+The restore script keeps the backup at `/data/adb/zircon-vibrator-fix-hal-backup`. Delete that directory only after confirming the original service is restored and working.
 
-The HAL binary is proprietary and its source is not included here. Rewriting an embedded string is brittle: this may not work if the binary uses a fixed-length string, or if the string is shared with Xiaomi's `IVibratorExt` registration. The script verifies the byte replacement, but it cannot prove that the patched service will initialize correctly. It has not been run on-device. Keep a recovery route available and disable the module if the HAL fails to start or the phone's haptic behavior worsens.
+### Risks and limitations
+
+This is not a proven fix. The HAL binary is proprietary and its source is not included. Rewriting an embedded string is brittle: the binary may use a fixed-length string, or the literal may also be used by Xiaomi's `IVibratorExt` registration. The script verifies the byte replacement and VINTF edit but cannot prove that the service initializes correctly. It has **not** been tested on-device. If haptics worsen, run the rollback script and reboot.
 
 ## Existing log monitor
 
-This branch retains the logcat watcher. Matching vibration/haptic diagnostics are appended to:
+This branch retains the `logcat -b all -v threadtime` watcher. Matching vibration/haptic diagnostics are appended to:
 
 `/data/adb/vibration_bridge/vibration_events.log`
 
@@ -55,8 +61,8 @@ The bridge's operational log remains:
 
 `/data/adb/vibration_bridge.log`
 
-The watcher attempts an AWINIC sysfs fallback for recognized Android notification, alarm, and ringtone usage records. Vendor builds may not expose those records, so event capture and fallback triggering are not guaranteed.
+The watcher attempts an AWINIC sysfs fallback for recognized Android notification, alarm, and ringtone usage records. Vendor builds may not expose those records, so capture and fallback triggering are not guaranteed.
 
 ## Device-specific assumptions
 
-The existing service expects the AWINIC device at `/sys/bus/i2c/devices/0-005a`, with `effect_id`, `duration`, `activate_mode`, and `activate` attributes. It uses effect ID 10. These values are device/firmware-specific; do not install on other devices without adapting and testing them.
+The existing service expects the AWINIC device at `/sys/bus/i2c/devices/0-005a`, with `effect_id`, `duration`, `activate_mode`, and `activate` attributes. It uses effect ID 10. These values are firmware-specific; do not install on other devices without adapting and testing them.
