@@ -28,10 +28,8 @@ chmod 0755 "$HAL"
 chmod 0644 "$MANIFEST"
 restorecon "$HAL" "$MANIFEST" 2>/dev/null || true
 
-if grep -aqF '/vibratorfeature' "$HAL" &&
-   grep -Fq 'IVibrator/vibratorfeature' "$MANIFEST"; then
-    echo "[HAL-default rollback] Original HAL and manifest restored. Reboot now."
-    echo "Backup retained at $BACKUP until you remove it manually."
-else
-    fail "Restore verification failed. Originals remain in $BACKUP."
-fi
+cmp -s "$BACKUP/hal.original" "$HAL" || fail "HAL restore verification failed."
+cmp -s "$BACKUP/manifest.original" "$MANIFEST" || fail "VINTF restore verification failed."
+
+echo "[HAL-default rollback] Original HAL and manifest restored. Reboot now."
+echo "Backup retained at $BACKUP until you remove it manually."
