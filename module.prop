@@ -1,6 +1,6 @@
 id=vibration_bridge
 name=Zircon Vibration Log Bridge - HAL Instance Experiment
-version=2.6.0
-versionCode=260
+version=2.6.1
+versionCode=261
 author=JxstABoy & Root Dev
-description=Experimental systemless IVibrator/default instance test for Xiaomi Zircon with AWINIC log monitoring.
+description=Opt-in IVibrator/default instance experiment with AWINIC haptic log monitoring; requires Magisk OverlayFS.
