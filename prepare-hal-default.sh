@@ -63,9 +63,12 @@ esac
 "$OVERLAYFS/overlayfs_system" --test >/dev/null 2>&1 ||
     fail "Magisk OverlayFS reports that this kernel/setup is unsupported."
 
-service check android.hardware.vibrator.IVibrator/vibratorfeature >/dev/null 2>&1 ||
+if ! service check android.hardware.vibrator.IVibrator/vibratorfeature 2>&1 |
+    grep -Fq 'Service android.hardware.vibrator.IVibrator/vibratorfeature: found'; then
     fail "The observed IVibrator/vibratorfeature Binder service is not registered."
-if service check android.hardware.vibrator.IVibrator/default >/dev/null 2>&1; then
+fi
+if service check android.hardware.vibrator.IVibrator/default 2>&1 |
+    grep -Fq 'Service android.hardware.vibrator.IVibrator/default: found'; then
     fail "IVibrator/default already exists; refusing to patch."
 fi
 
