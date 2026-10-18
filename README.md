@@ -10,7 +10,7 @@ This branch is an **opt-in test** of changing Xiaomi's HAL instance from `IVibra
 
 - The intended Xiaomi/Redmi Zircon firmware.
 - Magisk root.
-- The separate **Magisk OverlayFS** module installed and working. Standard Magisk does not reliably map `system/odm` overlays onto a separately mounted `/odm` partition; this branch writes through OverlayFS instead. See [Magisk OverlayFS](https://github.com/Magisk-Modules-Alt-Repo/magisk_overlayfs).
+- The separate **Magisk OverlayFS** module installed and working. Standard Magisk does not reliably map `system/odm` overlays onto a separately mounted `/odm` partition; this branch uses OverlayFS instead. See [Magisk OverlayFS](https://github.com/Magisk-Modules-Alt-Repo/magisk_overlayfs).
 - A way to disable modules or access recovery before testing.
 
 ### Prepare the experiment
@@ -33,7 +33,7 @@ This branch is an **opt-in test** of changing Xiaomi's HAL instance from `IVibra
    dumpsys vibrator_manager | grep -iE 'vibratorIds|Vibrators:|hapticChannelMaxAmplitude'
    ```
 
-The preparation script fails closed unless it detects Zircon, the expected running service, exactly one embedded `/vibratorfeature` literal, and exactly one matching VINTF declaration. It backs up both original files to `/data/adb/zircon-vibrator-fix-hal-backup` before changing them. The original flash partition is not written to; changes are stored in the OverlayFS upper layer.
+The preparation script fails closed unless it detects Zircon, the expected running service, exactly one null-terminated registration literal, and exactly one matching VINTF declaration. It backs up both original files to `/data/adb/zircon-vibrator-fix-hal-backup` before changing them. Changes are written through the OverlayFS upper layer, not to the underlying flash partition.
 
 ### Rollback
 
@@ -45,7 +45,7 @@ sh /data/adb/modules/vibration_bridge/rollback-hal-default.sh
 reboot
 ```
 
-The restore script keeps the backup at `/data/adb/zircon-vibrator-fix-hal-backup`. Delete that directory only after confirming the original service is restored and working.
+The restore script verifies both files and keeps the backup at `/data/adb/zircon-vibrator-fix-hal-backup`. Delete that directory only after confirming the original service is restored and working.
 
 ### Risks and limitations
 
