@@ -2,45 +2,61 @@
 
 Experimental Magisk module for Xiaomi/Redmi Zircon devices using the AWINIC haptic driver.
 
-## Experimental branch: vibration-log-monitor
+## Experimental branch: hal-instance-default-experiment
 
-This branch replaces notification-list polling with a `logcat -b all -v threadtime` watcher. Matching vibration/haptic diagnostics are appended to:
+This branch is based on `vibration-log-monitor` and adds an **opt-in, systemless experiment** that changes the Xiaomi HAL instance from `IVibrator/vibratorfeature` to the conventional `IVibrator/default`.
+
+The experiment has two parts:
+
+- A copied HAL executable with its single embedded `/vibratorfeature` literal replaced by the same-length `/default\0\0\0\0\0\0\0\0` byte sequence.
+- A matching copied VINTF manifest declaring `IVibrator/default`.
+
+The original files under `/odm` are not written to. The overlay files are placed under this module's `system/odm/` tree for Magisk to mount on the next boot.
+
+### Prepare the experiment
+
+1. Install the ZIP built from this branch as the existing `vibration_bridge` module.
+2. Open Termux and run:
+
+   ```sh
+   su
+   sh /data/adb/modules/vibration_bridge/prepare-hal-default.sh
+   ```
+
+3. If the script reports success, reboot.
+4. Check the service and framework state:
+
+   ```sh
+   su
+   service check android.hardware.vibrator.IVibrator/default
+   service check android.hardware.vibrator.IVibrator/vibratorfeature
+   dumpsys vibrator_manager | grep -iE 'vibratorIds|Vibrators:|hapticChannelMaxAmplitude'
+   ```
+
+The script fails closed unless it detects Zircon, the expected registered service, exactly one embedded instance literal, and exactly one matching manifest entry. If the installed firmware differs, it makes no overlay changes.
+
+### Rollback
+
+Disable this module in Magisk and reboot. The systemless overlay disappears and the original HAL binary and VINTF manifest remain untouched.
+
+## Important: this is not a proven fix
+
+On the tested firmware, `vibratorfeature` is registered and the framework reports `vibratorIds = []`. The framework library also contains a `vibratorfeature` lookup-related string, so an instance-name mismatch is plausible but **not proven**. This experiment only tests that hypothesis; it does not repair the kernel driver or change its sysfs interface.
+
+The HAL binary is proprietary and its source is not included here. Rewriting an embedded string is brittle: this may not work if the binary uses a fixed-length string, or if the string is shared with Xiaomi's `IVibratorExt` registration. The script verifies the byte replacement, but it cannot prove that the patched service will initialize correctly. It has not been run on-device. Keep a recovery route available and disable the module if the HAL fails to start or the phone's haptic behavior worsens.
+
+## Existing log monitor
+
+This branch retains the logcat watcher. Matching vibration/haptic diagnostics are appended to:
 
 `/data/adb/vibration_bridge/vibration_events.log`
 
-The bridge's own operational log remains:
+The bridge's operational log remains:
 
 `/data/adb/vibration_bridge.log`
 
-The watcher also attempts an AWINIC sysfs fallback when it sees recognized Android framework usage records for notifications, alarms, or ringtone vibration. This depends on the exact log messages emitted by the installed firmware; vendor builds may not expose those records, so **event capture and fallback triggering are not guaranteed**. The module does not hook Android's vibration API and cannot reliably infer every requested haptic from arbitrary log lines.
+The watcher attempts an AWINIC sysfs fallback for recognized Android notification, alarm, and ringtone usage records. Vendor builds may not expose those records, so event capture and fallback triggering are not guaranteed.
 
 ## Device-specific assumptions
 
-The service currently expects the AWINIC device at `/sys/bus/i2c/devices/0-005a` and attributes including `effect_id`, `duration`, `activate_mode`, and `activate`. It uses effect ID 10. These values are device/firmware-specific; do not install on other devices without adapting and testing them.
-
-## Install and test
-
-1. Keep a copy of the known-working module ZIP and ensure you can disable the module from Magisk or recovery.
-2. Install the ZIP built from this branch in Magisk and reboot.
-3. Trigger a notification or haptic action, then inspect the logs:
-
-   ```sh
-   su
-   tail -f /data/adb/vibration_bridge.log
-   ```
-
-   In another shell:
-
-   ```sh
-   su
-   tail -f /data/adb/vibration_bridge/vibration_events.log
-   ```
-
-4. Check whether the firmware actually emits the expected `VibratorManagerService` / `VibrationThread` usage lines before relying on automatic fallback.
-
-## Safety and limitations
-
-- This is a diagnostic workaround, not a fix to the Android vibrator HAL.
-- Log messages vary by Android version and vendor build; matching rules may need adjustment.
-- The fallback writes to AWINIC sysfs nodes. Test on the intended device and firmware only.
-- To roll back, disable or uninstall the module in Magisk and reboot. Removing the module also removes its bridge logs.
+The existing service expects the AWINIC device at `/sys/bus/i2c/devices/0-005a`, with `effect_id`, `duration`, `activate_mode`, and `activate` attributes. It uses effect ID 10. These values are device/firmware-specific; do not install on other devices without adapting and testing them.
